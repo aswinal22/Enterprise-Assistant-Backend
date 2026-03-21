@@ -20,6 +20,7 @@ class QueryRequest(BaseModel):
 class DocumentCreateResponse(BaseModel):
     document_id: UUID
     chunks_created: int
+    summary: str | None = None
 
 
 class DocumentResponse(BaseModel):

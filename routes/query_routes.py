@@ -13,6 +13,7 @@ from services.llm_service import generate_answer, generate_general_answer
 router = APIRouter(tags=["query"])
 
 SIMILARITY_THRESHOLD = 0.2
+MIN_CONTEXT_CONFIDENCE = 0.35
 
 
 def _cosine_similarity(first: list[float], second: list[float]) -> float:
@@ -75,6 +76,14 @@ def _fallback_answer(question: str, chunks: list[DocumentChunk], used_document_c
     )
 
 
+def _format_general_question_answer(answer: str) -> str:
+    return (
+        "Note: this question did not match any company-specific policy documents, "
+        "so this response is a general answer not based on company policy.\n\n"
+        + answer
+    )
+
+
 def _tokenize(text: str) -> set[str]:
     return {token.strip(".,:;!?()[]{}\"'").lower() for token in text.split() if len(token.strip(".,:;!?()[]{}\"'")) > 2}
 
@@ -131,20 +140,22 @@ def query_documents(payload: QueryRequest, db: Session = Depends(get_db)) -> Que
         query_embedding = None
 
     selected_chunks, best_similarity = _select_relevant_chunks(chunks, question, query_embedding, payload.top_k)
-    used_document_context = len(selected_chunks) > 0
-    context = "\n\n".join(chunk.chunk_text for chunk in selected_chunks)
+    used_document_context = bool(selected_chunks and best_similarity is not None and best_similarity >= MIN_CONTEXT_CONFIDENCE)
+    context = "\n\n".join(chunk.chunk_text for chunk in selected_chunks) if used_document_context else ""
 
     llm_error = None
     try:
         if used_document_context:
             answer = generate_answer(question, context)
         else:
-            answer = generate_general_answer(question)
+            answer = _format_general_question_answer(generate_general_answer(question))
         llm_used = True
     except Exception as exc:
         llm_used = False
         llm_error = str(exc)
-        answer = _fallback_answer(question, selected_chunks, used_document_context)
+        answer = _fallback_answer(question, selected_chunks if used_document_context else [], used_document_context)
+        if not used_document_context:
+            answer = _format_general_question_answer(answer)
 
     return QueryResponse(
         answer=answer,

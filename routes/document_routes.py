@@ -7,6 +7,7 @@ from models.document_chunk import DocumentChunk
 from schemas import DocumentCreate, DocumentCreateResponse, DocumentResponse
 from services.chunking import chunk_text
 from services.embeddings import generate_embedding
+from services.llm_service import generate_summary
 
 router = APIRouter(tags=["documents"])
 
@@ -49,7 +50,13 @@ def create_document(payload: DocumentCreate, db: Session = Depends(get_db)) -> D
     db.commit()
     db.refresh(document)
 
-    return DocumentCreateResponse(document_id=document.id, chunks_created=len(chunks))
+    summary = None
+    try:
+        summary = generate_summary(text)
+    except Exception:
+        pass  # Optional: log the error if needed
+
+    return DocumentCreateResponse(document_id=document.id, chunks_created=len(chunks), summary=summary)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)

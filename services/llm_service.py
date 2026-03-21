@@ -99,3 +99,26 @@ Question:
             {"role": "user", "content": user_prompt.strip()},
         ]
     )
+
+
+def generate_summary(text: str) -> str:
+    system_prompt = """
+You are an expert document summarizer.
+
+Summarize the provided document text in a concise, professional manner.
+Focus on key points, main ideas, and important details.
+Keep the summary to 200-300 words.
+Structure it with a brief overview followed by bullet points for main sections or topics.
+"""
+
+    user_prompt = f"""
+Document text:
+{text[:4000]}  # Limit to first 4000 chars to avoid token limits
+"""
+
+    return _send_chat_completion(
+        [
+            {"role": "system", "content": system_prompt.strip()},
+            {"role": "user", "content": user_prompt.strip()},
+        ]
+    )
