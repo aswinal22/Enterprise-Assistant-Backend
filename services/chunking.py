@@ -1,8 +1,11 @@
 import re
 
+from logging_utils import get_logger
+
 
 SENTENCE_BOUNDARY_PATTERN = re.compile(r"(?<=[.!?])\s+")
 PARAGRAPH_BOUNDARY_PATTERN = re.compile(r"\n\s*\n+")
+logger = get_logger(__name__)
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -67,6 +70,7 @@ def _append_with_overlap(chunks: list[str], current_parts: list[str], overlap_ch
 def chunk_text(text: str, chunk_size: int = 700, overlap: int = 120) -> list[str]:
     normalized_text = text.strip()
     if not normalized_text:
+        logger.warning("Received empty text for chunking")
         return []
 
     chunks: list[str] = []
@@ -101,4 +105,12 @@ def chunk_text(text: str, chunk_size: int = 700, overlap: int = 120) -> list[str
     if current_parts:
         chunks.append(" ".join(current_parts).strip())
 
-    return [chunk for chunk in chunks if chunk]
+    final_chunks = [chunk for chunk in chunks if chunk]
+    logger.info(
+        "Chunking completed chunk_count=%s input_length=%s chunk_size=%s overlap=%s",
+        len(final_chunks),
+        len(normalized_text),
+        chunk_size,
+        overlap,
+    )
+    return final_chunks

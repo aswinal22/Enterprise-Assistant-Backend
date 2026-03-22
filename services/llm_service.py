@@ -1,6 +1,8 @@
 import requests
 from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, LLM_MODEL
-import traceback
+from logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 def _send_chat_completion(messages: list[dict[str, str]]) -> str:
     if not OPENROUTER_API_KEY:
@@ -23,6 +25,12 @@ def _send_chat_completion(messages: list[dict[str, str]]) -> str:
         "temperature": 0.2
     }
 
+    logger.info(
+        "Sending LLM chat completion model=%s message_count=%s",
+        LLM_MODEL,
+        len(messages),
+    )
+
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
@@ -30,22 +38,31 @@ def _send_chat_completion(messages: list[dict[str, str]]) -> str:
         details = ""
         if getattr(exc, "response", None) is not None:
             details = f" Response body: {exc.response.text[:500]}"
+        logger.exception("LLM request failed model=%s", LLM_MODEL)
         raise RuntimeError(f"LLM request failed: {exc}.{details}") from exc
 
     result = response.json()
     choices = result.get("choices")
     if not choices:
+        logger.error("LLM response missing choices model=%s", LLM_MODEL)
         raise RuntimeError(f"LLM response did not include choices. Response: {str(result)[:500]}")
 
     message = choices[0].get("message", {})
     content = message.get("content")
     if not content:
+        logger.error("LLM response missing message content model=%s", LLM_MODEL)
         raise RuntimeError(f"LLM response did not include message content. Response: {str(result)[:500]}")
 
+    logger.info("LLM chat completion received successfully model=%s", LLM_MODEL)
     return content
 
 
 def generate_answer(question: str, context: str) -> str:
+    logger.info(
+        "Generating contextual answer question_length=%s context_length=%s",
+        len(question),
+        len(context),
+    )
     system_prompt = """
 You are a precise enterprise document assistant.
 
@@ -74,6 +91,7 @@ Context:
 
 
 def generate_general_answer(question: str) -> str:
+    logger.info("Generating general answer question_length=%s", len(question))
     system_prompt = """
 You are a helpful enterprise assistant.
 
@@ -102,6 +120,7 @@ Question:
 
 
 def generate_summary(text: str) -> str:
+    logger.info("Generating summary text_length=%s truncated_length=%s", len(text), len(text[:4000]))
     system_prompt = """
 You are an expert document summarizer.
 

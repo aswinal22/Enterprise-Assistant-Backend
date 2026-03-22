@@ -5,12 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
+from logging_utils import get_logger
 from models.document_chunk import DocumentChunk
 from schemas import QueryRequest, QueryResponse
 from services.embeddings import generate_embedding
 from services.llm_service import generate_answer, generate_general_answer
 
 router = APIRouter(tags=["query"])
+logger = get_logger(__name__)
 
 SIMILARITY_THRESHOLD = 0.2
 MIN_CONTEXT_CONFIDENCE = 0.35
@@ -117,11 +119,20 @@ def _select_relevant_chunks(
     ]
 
     if not ranked_chunks:
+        logger.info("No ranked chunks available for question_length=%s", len(question))
         return [], None
 
     ranked_chunks.sort(key=lambda item: (item[1], _sort_key(item[0])), reverse=True)
     best_similarity = ranked_chunks[0][1]
     selected_chunks = [chunk for chunk, score in ranked_chunks if score >= SIMILARITY_THRESHOLD][:top_k]
+
+    logger.info(
+        "Relevant chunks selected total_chunks=%s selected_chunks=%s best_similarity=%s top_k=%s",
+        len(chunks),
+        len(selected_chunks),
+        round(best_similarity, 4),
+        top_k,
+    )
 
     return selected_chunks, best_similarity
 
@@ -130,18 +141,36 @@ def _select_relevant_chunks(
 def query_documents(payload: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse:
     question = payload.message.strip()
     if not question:
+        logger.warning("Rejected empty query company_id=%s", payload.company_id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Query message cannot be empty.")
 
+    logger.info(
+        "Processing query company_id=%s top_k=%s question_length=%s",
+        payload.company_id,
+        payload.top_k,
+        len(question),
+    )
+
     chunks = db.query(DocumentChunk).filter(DocumentChunk.company_id == payload.company_id).all()
+    logger.info("Loaded company chunks company_id=%s chunk_count=%s", payload.company_id, len(chunks))
 
     try:
         query_embedding = generate_embedding(question)
+        logger.info("Query embedding generated company_id=%s", payload.company_id)
     except Exception:
+        logger.exception("Query embedding generation failed company_id=%s", payload.company_id)
         query_embedding = None
 
     selected_chunks, best_similarity = _select_relevant_chunks(chunks, question, query_embedding, payload.top_k)
     used_document_context = bool(selected_chunks and best_similarity is not None and best_similarity >= MIN_CONTEXT_CONFIDENCE)
     context = "\n\n".join(chunk.chunk_text for chunk in selected_chunks) if used_document_context else ""
+    logger.info(
+        "Query context decision company_id=%s used_document_context=%s selected_chunks=%s best_similarity=%s",
+        payload.company_id,
+        used_document_context,
+        len(selected_chunks),
+        best_similarity,
+    )
 
     llm_error = None
     try:
@@ -150,9 +179,20 @@ def query_documents(payload: QueryRequest, db: Session = Depends(get_db)) -> Que
         else:
             answer = _format_general_question_answer(generate_general_answer(question))
         llm_used = True
+        logger.info(
+            "Query answered successfully company_id=%s llm_used=%s used_document_context=%s",
+            payload.company_id,
+            llm_used,
+            used_document_context,
+        )
     except Exception as exc:
         llm_used = False
         llm_error = str(exc)
+        logger.exception(
+            "Query answer generation failed company_id=%s used_document_context=%s",
+            payload.company_id,
+            used_document_context,
+        )
         answer = _fallback_answer(question, selected_chunks if used_document_context else [], used_document_context)
         if not used_document_context:
             answer = _format_general_question_answer(answer)
