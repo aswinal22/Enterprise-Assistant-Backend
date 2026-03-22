@@ -79,11 +79,7 @@ def _fallback_answer(question: str, chunks: list[DocumentChunk], used_document_c
 
 
 def _format_general_question_answer(answer: str) -> str:
-    return (
-        "Note: this question did not match any company-specific policy documents, "
-        "so this response is a general answer not based on company policy.\n\n"
-        + answer
-    )
+    return answer
 
 
 def _tokenize(text: str) -> set[str]:

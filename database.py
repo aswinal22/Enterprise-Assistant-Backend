@@ -36,20 +36,29 @@ def ensure_database_connection():
         with engine.connect():
             logger.info("Database connection established successfully")
             return engine
-    except SQLAlchemyError:
-        logger.exception("Primary database connection failed url=%s", engine.url)
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Primary database connection failed url=%s error=%s",
+            engine.url,
+            exc,
+        )
         if str(engine.url) == DEFAULT_SQLITE_URL:
             raise
 
     logger.warning("Falling back to default SQLite database url=%s", DEFAULT_SQLITE_URL)
-    engine = create_engine(
-        DEFAULT_SQLITE_URL,
-        connect_args={"check_same_thread": False},
-        pool_pre_ping=True,
-    )
-    SessionLocal.configure(bind=engine)
-    logger.info("Database fallback configured successfully")
-    return engine
+    try:
+        engine = create_engine(
+            DEFAULT_SQLITE_URL,
+            connect_args={"check_same_thread": False},
+            pool_pre_ping=True,
+        )
+        SessionLocal.configure(bind=engine)
+        with engine.connect():
+            logger.info("Database fallback configured successfully")
+        return engine
+    except SQLAlchemyError:
+        logger.exception("Database fallback connection failed url=%s", DEFAULT_SQLITE_URL)
+        raise
 
 
 def get_db():
